@@ -192,8 +192,8 @@ class TCPSession(Thread):
                     self._seqNo = ip.payload.payload.getfieldval("ack")
                     break
                 elif flgs == getFlagsFromStr("FA") or flgs == getFlagsFromStr("F"):
-                    self._ackNo = ip.payload.payload.getfieldval("seq") + 1
-                    self._seqNo = ip.payload.payload.getfieldval("ack")
+                    self._ackNo = ip.payload.payload.getfieldval("ack")
+                    self._seqNo = ip.payload.payload.getfieldval("seq")
                     self._state = "STATE_FIN" 
                     return
                 else:
@@ -206,7 +206,35 @@ class TCPSession(Thread):
         self._state = "STATE_KA"
     
     def doFin(self):
-        print(">>>>>>>>>>> doFIN")
+        #respond to the FIN-ACK received in doKA with ACK
+        bpkt = genIpPacket(self._localIp, self._serverIp, 
+                           self._localPort, self._serverPort, 
+                           self._ackNo, self._seqNo + 1, "A")
+        self._sockout.sendto(bpkt, (self._serverIp, 0)) 
+        
+        '''
+            return here to stop the server in fin-wait 2
+        '''
+        self._state = "STATE_DONE"
+        return
+        
+        #send FIN-ACK
+        bpkt = genIpPacket(self._localIp, self._serverIp, 
+                          self._localPort, self._serverPort, 
+                          self._ackNo, self._seqNo + 1, "FA")
+        self._sockout.sendto(bpkt, (self._serverIp, 0))
+        
+        while 1:
+            (bstr, _) = self._sockin.recvfrom(65565)
+            if self.inPktMatches(bstr):
+                ip = disIpPacket(bstr)
+                flgs = ip.payload.payload.getfieldval("flags")                
+                if  flgs != getFlagsFromStr("A"):
+                    raise ValueError('Wrong flag. Expecting ACK')                                    
+                else:
+                    self._state = "STATE_DONE"
+                    return             
+        
         self._state = "STATE_DONE"
     
 class BrokenTCP(TCPSession):
